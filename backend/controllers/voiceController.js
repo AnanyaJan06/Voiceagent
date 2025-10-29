@@ -18,7 +18,7 @@ export const handleIncomingCall = (req, res) => {
   gather.say({
     voice: 'alice',
     language: 'en-US'
-  }, 'Hello! Welcome to AutoParts CRM. How can I help you today?');
+  }, 'Hello! Welcome to  Firstused Autoparts. How can I help you today?');
 
   // Fallback
   twiml.say('I didn’t catch that. Goodbye.');

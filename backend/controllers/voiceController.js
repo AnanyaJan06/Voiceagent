@@ -1,6 +1,6 @@
 // backend/controllers/voiceController.js
 import twilio from "twilio";
-const { VoiceResponse } = twilio;
+const { VoiceResponse } = twilio.twiml;
 
 // Step 1: Greet and gather speech
 export const handleIncomingCall = (req, res) => {

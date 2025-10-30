@@ -5,6 +5,13 @@ import { getSession, updateSession } from '../utils/state.js';
 export const handleIncomingCall = (req, res) => {
   const twiml = new VoiceResponse();
 
+  // START MEDIA STREAM — SEND AUDIO TO YOUR SERVER
+  twiml.start().stream({
+    url: 'wss://voiceagent-m4a0.onrender.com/media-stream',  // ← YOUR RENDER URL
+    track: 'inbound'  // Only customer audio
+  });
+
+  // GATHER SPEECH (Twilio STT fallback)
   const gather = twiml.gather({
     input: 'speech',
     action: '/api/voice/speech',
@@ -14,10 +21,11 @@ export const handleIncomingCall = (req, res) => {
   });
 
   gather.say(
-    { voice: 'alice' },
+    { voice: 'alice', language: 'en-US' },
     'Hello! Welcome to Firstused Autoparts. How can I help you today?'
   );
 
+  // Fallback
   twiml.say('I didn’t catch that. Goodbye.');
   twiml.hangup();
 

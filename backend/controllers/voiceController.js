@@ -43,7 +43,7 @@ export const handleSpeech = (req, res) => {
 
   // Step 1: Detect part type
   if (!session.partType) {
-    if (userSpeech.includes('brake') || userSpeech.includes('pad')) {
+    if (userSpeech.includes('brake') || userSpeech.includes('pad'))  {
       updateSession(callSid, { partType: 'brake pads', step: 'vehicle' });
       twiml.say('Got it — you need brake pads. What’s the make, model, and year of your vehicle?');
     }

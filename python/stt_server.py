@@ -8,7 +8,8 @@ load_dotenv()
 app = Flask(__name__)
 CORS(app)
 
-model = WhisperModel("small", device="cpu", compute_type="int8")
+# CHANGE: Use 'tiny.en' instead of 'small'
+model = WhisperModel("tiny.en", device="cpu", compute_type="int8")
 
 @app.route('/transcribe', methods=['POST'])
 def transcribe():
@@ -25,5 +26,5 @@ def transcribe():
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    port = int(os.getenv('PORT', 10000))   # Render supplies $PORT
+    port = int(os.getenv('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)

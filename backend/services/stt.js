@@ -1,23 +1,22 @@
-// backend/services/stt.js
 export async function transcribeAudio(audioBase64) {
-  const STT_URL = process.env.STT_URL || 'http://localhost:5001'; // Local fallback
+  const STT_URL = process.env.STT_URL || 'http://localhost:5001';
 
   try {
-    const response = await fetch(`${STT_URL}/transcribe`, {
+    const res = await fetch(`${STT_URL}/transcribe`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ audio: audioBase64 })
     });
 
-    if (!response.ok) {
-      const err = await response.text();
-      throw new Error(`Whisper error: ${response.status} - ${err}`);
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`STT error: ${res.status} - ${err}`);
     }
 
-    const data = await response.json();
+    const data = await res.json();
     return data.text || '';
-  } catch (error) {
-    console.error('STT error:', error.message);
-    return ''; // Fallback to Twilio STT
+  } catch (e) {
+    console.error('STT error:', e.message);
+    return '';
   }
 }

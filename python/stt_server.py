@@ -8,7 +8,7 @@ load_dotenv()
 app = Flask(__name__)
 CORS(app)
 
-# CHANGE: Use 'tiny.en' instead of 'small'
+# tiny.en = 75MB → fits in 512MB RAM
 model = WhisperModel("tiny.en", device="cpu", compute_type="int8")
 
 @app.route('/transcribe', methods=['POST'])
@@ -18,10 +18,10 @@ def transcribe():
         audio_bytes = base64.b64decode(audio_base64)
         audio_io = io.BytesIO(audio_bytes)
 
-        segments, info = model.transcribe(audio_io, beam_size=5, language='en')
+        segments, _ = model.transcribe(audio_io, beam_size=5, language='en')
         text = ' '.join(seg.text.strip() for seg in segments).strip()
 
-        return jsonify({'text': text, 'duration': info.duration})
+        return jsonify({'text': text})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

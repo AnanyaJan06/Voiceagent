@@ -1,17 +1,15 @@
 import twilio from "twilio";
 const { VoiceResponse } = twilio.twiml;
-import { getSession, updateSession } from '../utils/state.js';
+import { getSession } from '../utils/state.js';
 
 export const handleIncomingCall = (req, res) => {
   const twiml = new VoiceResponse();
 
-  // START MEDIA STREAM — SEND AUDIO TO YOUR SERVER
   twiml.start().stream({
-    url: 'wss://voiceagent-m4a0.onrender.com/media-stream',  // ← YOUR RENDER URL
-    track: 'inbound'  // Only customer audio
+    url: 'wss://voiceagent-m4a0.onrender.com/media-stream',
+    track: 'inbound'
   });
 
-  // GATHER SPEECH (Twilio STT fallback)
   const gather = twiml.gather({
     input: 'speech',
     action: '/api/voice/speech',
@@ -25,7 +23,6 @@ export const handleIncomingCall = (req, res) => {
     'Hello! Welcome to Firstused Autoparts. How can I help you today?'
   );
 
-  // Fallback
   twiml.say('I didn’t catch that. Goodbye.');
   twiml.hangup();
 
@@ -34,45 +31,10 @@ export const handleIncomingCall = (req, res) => {
 
 export const handleSpeech = (req, res) => {
   const userSpeech = (req.body.SpeechResult || '').trim().toLowerCase();
-  const callSid = req.body.CallSid;
-  const session = getSession(callSid);
-
-  console.log('Customer said:', userSpeech);
+  console.log('Twilio STT (fallback):', userSpeech);
 
   const twiml = new VoiceResponse();
-
-  // Step 1: Detect part type
-  if (!session.partType) {
-    if (userSpeech.includes('brake') || userSpeech.includes('pad'))  {
-      updateSession(callSid, { partType: 'brake pads', step: 'vehicle' });
-      twiml.say('Got it — you need brake pads. What’s the make, model, and year of your vehicle?');
-    }
-    else if (userSpeech.includes('battery')) {
-      updateSession(callSid, { partType: 'battery', step: 'vehicle' });
-      twiml.say('Got it — you need a battery. What’s the make, model, and year of your vehicle?');
-    }
-    else {
-      twiml.say('I understand you need auto parts. Please tell me what part you need.');
-    }
-  }
-  // Step 2: Get vehicle
-  else if (session.step === 'vehicle') {
-    updateSession(callSid, { vehicle: userSpeech, step: 'confirm' });
-    twiml.say('Perfect. Let me check...');
-    // In next step: RAG lookup
-  }
-
-  // Loop
-  const gather = twiml.gather({
-    input: 'speech',
-    action: '/api/voice/speech',
-    method: 'POST',
-    speechTimeout: 'auto',
-  });
-  gather.say('Go ahead, I’m listening.');
-
-  twiml.say('Goodbye.');
-  twiml.hangup();
-
+  twiml.say('I’m listening with AI...');
+  twiml.redirect('/api/voice/incoming');
   res.type('text/xml').send(twiml.toString());
 };

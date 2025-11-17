@@ -1,4 +1,3 @@
-// Simple in-memory state (later: MongoDB session)
 const sessions = new Map();
 
 export function getSession(callSid) {
@@ -7,7 +6,7 @@ export function getSession(callSid) {
       callSid,
       partType: null,
       vehicle: null,
-      step: 'greeting' // greeting → part → vehicle → confirm
+      step: 'greeting'
     });
   }
   return sessions.get(callSid);

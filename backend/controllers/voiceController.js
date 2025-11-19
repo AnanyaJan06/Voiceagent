@@ -6,7 +6,7 @@ export const handleIncomingCall = (req, res) => {
   const twiml = new VoiceResponse();
 
   twiml.start().stream({
-    url: 'wss://voiceagent-m4a0.onrender.com/media-stream',
+    url: 'ws://voiceagent-m4a0.onrender.com/media-stream',
     track: 'inbound'
   });
 

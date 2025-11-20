@@ -1,6 +1,6 @@
 import twilio from "twilio";
 const { VoiceResponse } = twilio.twiml;
-import { getSession } from '../utils/state.js';
+import { getSession , updateSession} from '../utils/state.js';
 
 export const handleIncomingCall = (req, res) => {
   const twiml = new VoiceResponse();

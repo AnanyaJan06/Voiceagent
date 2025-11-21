@@ -36,6 +36,7 @@ def synthesize():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    # Render injects $PORT — MUST use it
-    port = int(os.getenv('PORT', 10000))
+    # Render sets $PORT — ALWAYS use it
+    port = int(os.getenv('PORT', '10000'))   # <-- this line is critical
+    print(f"Starting TTS server on port {port}")  # <-- helps debugging
     app.run(host='0.0.0.0', port=port, debug=False)

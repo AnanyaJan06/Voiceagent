@@ -1,4 +1,4 @@
 flask==3.0.3
 flask-cors==4.0.0
 python-dotenv==1.0.0
-TTS==0.20.6   # ← THIS VERSION WORKS PERFECTLY ON RENDER PYTHON 3.12
+piper-tts==1.2.0

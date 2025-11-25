@@ -1,42 +1,32 @@
 from flask import Flask, request, send_file, jsonify
 from flask_cors import CORS
-from TTS.api import TTS
-import tempfile
+from piper import PiperVoice
 import os
+import tempfile
 
 app = Flask(__name__)
 CORS(app)
 
-# Load Coqui TTS model - natural female voice
-# First run will download ~200MB model — normal!
-tts = TTS("tts_models/en/ljspeech/tacotron2-DDC", progress_bar=False)
+# BEST VOICE — libritts-high
+VOICE_PATH = os.path.join(os.path.dirname(__file__), "voices", "en_US-libritts-high.onnx")
+voice = PiperVoice.load(VOICE_PATH)
 
-# Health check so Render stops complaining
 @app.route('/')
 def health():
-    return jsonify({"status": "ok", "message": "TTS server is alive and ready"}), 200
+    return jsonify({"status": "ok", "voice": "en_US-libritts-high"}), 200
 
-# Main endpoint
 @app.route('/synthesize', methods=['POST'])
 def synthesize():
     try:
-        data = request.get_json(force=True)
-        text = data.get('text', '').strip()
-        
-        if not text:
-            return jsonify({"error": "No text provided"}), 400
-
-        # Generate WAV file
-        tmp_file = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
-        tts.tts_to_file(text=text, file_path=tmp_file.name)
-        
-        return send_file(tmp_file.name, mimetype='audio/wav')
-        
+        text = request.json['text']
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            voice.synthesize(text, f)
+            f.close()
+            return send_file(f.name, mimetype="audio/wav")
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    # Render sets $PORT — ALWAYS use it
-    port = int(os.getenv('PORT', '10000'))   # <-- this line is critical
-    print(f"Starting TTS server on port {port}")  # <-- helps debugging
+    port = int(os.getenv('PORT', 10000))
+    print(f"Starting Piper TTS server (libritts-high) on port {port}")
     app.run(host='0.0.0.0', port=port, debug=False)

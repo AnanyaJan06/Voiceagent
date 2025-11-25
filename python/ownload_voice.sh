@@ -12,7 +12,7 @@ if [ ! -f "en_US-libritts-high.onnx" ]; then
         "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/libritts/high/en_US-libritts-high.onnx"
     echo "Model downloaded"
 else
-    echo "Model already exists"
+    echo "Model already exists"    
 fi
 
 # Download .json config

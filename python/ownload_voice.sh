@@ -13,7 +13,7 @@ if [ ! -f "en_US-libritts-high.onnx" ]; then
     echo "Model downloaded"
 else
     echo "Model already exists"    
-fi
+fi   
 
 # Download .json config
 if [ ! -f "en_US-libritts-high.onnx.json" ]; then

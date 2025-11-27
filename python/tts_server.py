@@ -3,11 +3,11 @@ from flask_cors import CORS
 from piper import PiperVoice
 import os
 import tempfile
+import uuid
 
 app = Flask(__name__)
 CORS(app)
 
-# Load Piper voice
 VOICE_PATH = os.path.join(os.path.dirname(__file__), "voices", "en_US-libritts-high.onnx")
 voice = PiperVoice.load(VOICE_PATH)
 
@@ -18,27 +18,27 @@ def health():
 @app.route('/synthesize', methods=['POST'])
 def synthesize():
     try:
-        # SAFELY get JSON
         if not request.is_json:
-            return jsonify({"error": "Request must be JSON"}), 400
+            return jsonify({"error": "JSON required"}), 400
             
-        data = request.get_json()
-        text = data.get('text', '').strip()
-        
+        text = request.get_json().get('text', '').strip()
         if not text:
-            return jsonify({"error": "No text provided"}), 400
+            return jsonify({"error": "No text"}), 400
 
-        # Generate WAV
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+        # Generate unique filename to avoid conflicts
+        tmp_filename = os.path.join(tempfile.gettempdir(), f"piper_{uuid.uuid4().hex}.wav")
+        
+        # Write directly — no file handle issues
+        with open(tmp_filename, "wb") as f:
             voice.synthesize(text, f)
-            f.close()
-            return send_file(f.name, mimetype="audio/wav", as_attachment=True, download_name="response.wav")
-            
+
+        return send_file(tmp_filename, mimetype="audio/wav", as_attachment=True, download_name="response.wav")
+        
     except Exception as e:
-        print(f"TTS Error: {e}")  # This will show in Render logs
+        print(f"TTS ERROR: {e}")  # This will show in Render logs
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 10000))
-    print(f"Starting Piper TTS server (libritts-high) on port {port}")
+    print(f"Starting Piper TTS server on port {port}")
     app.run(host='0.0.0.0', port=port, debug=False)

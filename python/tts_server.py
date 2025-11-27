@@ -8,7 +8,6 @@ import wave
 app = Flask(__name__)
 CORS(app)
 
-# Load Piper voice model
 VOICE_PATH = os.path.join(os.path.dirname(__file__), "voices", "en_US-libritts-high.onnx")
 voice = PiperVoice.load(VOICE_PATH)
 
@@ -21,28 +20,28 @@ def synthesize():
     try:
         text = request.get_json().get("text", "").strip()
         if not text:
-            return jsonify({"error": "No text provided"}), 400
+            return jsonify({"error": "No text"}), 400
 
-        # 1️⃣ Generate raw PCM in memory
+        # Piper writes raw PCM to a BytesIO buffer
         pcm_buffer = io.BytesIO()
         voice.synthesize(text, pcm_buffer)
-        pcm_data = pcm_buffer.getvalue()
+        pcm_buffer.seek(0)
+        pcm_data = pcm_buffer.read()
 
-        # 2️⃣ Wrap raw PCM in proper WAV
+        # Wrap in proper WAV header
         wav_buffer = io.BytesIO()
         with wave.open(wav_buffer, 'wb') as wav_file:
             wav_file.setnchannels(1)
-            wav_file.setsampwidth(2)      # 16-bit
-            wav_file.setframerate(22050)  # libritts-high sample rate
+            wav_file.setsampwidth(2)    # 16-bit
+            wav_file.setframerate(22050)  # libritts-high = 22050 Hz
             wav_file.writeframes(pcm_data)
 
         wav_buffer.seek(0)
-
         return send_file(
             wav_buffer,
-            mimetype='audio/wav',
+            mimetype="audio/wav",
             as_attachment=True,
-            download_name='response.wav'
+            download_name="response.wav"
         )
 
     except Exception as e:

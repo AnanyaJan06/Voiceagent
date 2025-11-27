@@ -2,6 +2,7 @@ from flask import Flask, request, send_file, jsonify
 from flask_cors import CORS
 from piper import PiperVoice
 import os
+import io
 import wave
 
 app = Flask(__name__)
@@ -21,24 +22,23 @@ def synthesize():
         if not text:
             return jsonify({"error": "No text"}), 400
 
-        # Generate raw PCM
-        import io
+        # Piper writes raw PCM to a BytesIO buffer
         pcm_buffer = io.BytesIO()
         voice.synthesize(text, pcm_buffer)
         pcm_buffer.seek(0)
         pcm_data = pcm_buffer.read()
 
-        # Wrap in WAV header
-        import tempfile
-        final_wav = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-        with wave.open(final_wav.name, "wb") as wav:
-            wav.setnchannels(1)
-            wav.setsampwidth(2)
-            wav.setframerate(22050)
-            wav.writeframes(pcm_data)
+        # Wrap in proper WAV header
+        wav_buffer = io.BytesIO()
+        with wave.open(wav_buffer, 'wb') as wav_file:
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)    # 16-bit
+            wav_file.setframerate(22050)  # libritts-high = 22050 Hz
+            wav_file.writeframes(pcm_data)
 
+        wav_buffer.seek(0)
         return send_file(
-            final_wav.name,
+            wav_buffer,
             mimetype="audio/wav",
             as_attachment=True,
             download_name="response.wav"

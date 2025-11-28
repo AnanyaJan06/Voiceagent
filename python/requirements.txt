@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 faster-whisper==1.0.3
 flask==3.0.3
 flask-cors==4.0.0
@@ -5,3 +6,9 @@ python-dotenv==1.0.0
 requests==2.32.5
 av==12.3.0
 ctranslate2==4.4.0
+=======
+flask==3.0.3
+flask-cors==4.0.0
+python-dotenv==1.0.0
+piper-tts==1.2.0
+>>>>>>> 1489ceec1cdb40c06f7595f3a1f48cf099c33fae

@@ -1,4 +1,10 @@
 node_modules/
 .env
 npm-debug.log*
+<<<<<<< HEAD
 .DS_Store
+=======
+.DS_Store
+python/voices/
+    
+>>>>>>> 1489ceec1cdb40c06f7595f3a1f48cf099c33fae

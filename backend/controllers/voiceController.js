@@ -1,9 +1,17 @@
+// backend/controllers/voiceController.js
 import twilio from "twilio";
 const { VoiceResponse } = twilio.twiml;
+
 import { getSession, updateSession } from '../utils/state.js';
 import { synthesizeText } from '../services/tts.js';
+import { askLlama } from '../services/groq.js';  // <-- AI BRAIN
 
 export const handleIncomingCall = async (req, res) => {
+  const callSid = req.body.CallSid;
+
+  // Initialize session with empty conversation history
+  updateSession(callSid, { history: [] });
+
   const twiml = new VoiceResponse();
 
   const gather = twiml.gather({
@@ -19,63 +27,66 @@ export const handleIncomingCall = async (req, res) => {
     'Hello! Welcome to Firstused Autoparts. How can I help you today?'
   );
 
-  twiml.say('Goodbye.');
+  // Fallback if no speech detected
+  twiml.say('I didn\'t hear anything. Goodbye.');
   twiml.hangup();
 
   res.type('text/xml').send(twiml.toString());
 };
 
 export const handleSpeech = async (req, res) => {
-  const userSpeech = (req.body.SpeechResult || '').trim().toLowerCase();
+  const userSpeech = (req.body.SpeechResult || '').trim();
   const callSid = req.body.CallSid;
-  const session = getSession(callSid);
 
   console.log('Customer said:', userSpeech);
 
+  const session = getSession(callSid);
+  const history = session.history || [];
+
+  // Add user message to history
+  history.push({ role: "user", content: userSpeech });
+
+  // Build prompt with full conversation
+  const conversationSoFar = history
+    .map(msg => `${msg.role === "user" ? "Customer" : "Assistant"}: ${msg.content}`)
+    .join('\n');
+
+  // ASK LLAMA 3 (THE AI BRAIN)
+  const aiResponse = await askLlama(`
+You are a friendly and professional auto parts salesperson at Firstused Autoparts.
+Speak naturally, be helpful, and keep responses short (1-2 sentences max).
+Only ask one question at a time.
+
+Conversation so far:
+${conversationSoFar}
+
+Reply to the customer:`);
+
+  // Save AI response
+  history.push({ role: "assistant", content: aiResponse });
+  updateSession(callSid, { history });
+
+  console.log('AI replied:', aiResponse);
+
   const twiml = new VoiceResponse();
 
-  let responseText = "I'm not sure what you need.";
-
-  if (!session.partType) {
-    if (userSpeech.includes('brake') || userSpeech.includes('pad')) {
-      updateSession(callSid, { partType: 'brake pads', step: 'vehicle' });
-      responseText = "Got it — you need brake pads. What’s the make, model, and year of your vehicle?";
-    } else if (userSpeech.includes('battery')) {
-      updateSession(callSid, { partType: 'battery', step: 'vehicle' });
-      responseText = "Got it — you need a battery. What’s the make, model, and year of your vehicle?";
-    } else {
-      responseText = "I understand you need auto parts. Please tell me what part you are looking for.";
-    }
-  } else if (session.step === 'vehicle') {
-    updateSession(callSid, { vehicle: userSpeech, step: 'done' });
-    responseText = `Perfect. Let me check ${session.partType} for ${userSpeech}... We have it in stock! Would you like to order?`;
-  } else {
-    responseText = "Thank you for calling Firstused Autoparts. Goodbye!";
-    twiml.hangup();
-  }
-
-  // Generate natural voice with Coqui TTS
-  const audioBuffer = await synthesizeText(responseText);
+  // Use Piper TTS (your beautiful voice)
+  const audioBuffer = await synthesizeText(aiResponse);
   if (audioBuffer) {
     const base64Audio = audioBuffer.toString('base64');
-    twiml.play({
-      digits: 'wwww' // small pause
-    });
     twiml.play(`data:audio/wav;base64,${base64Audio}`);
   } else {
-    twiml.say(responseText); // fallback to Twilio voice
+    // Fallback to Twilio voice if TTS fails
+    twiml.say({ voice: 'Polly.Joanna', language: 'en-US' }, aiResponse);
   }
 
-  // Continue conversation
-  if (session.step !== 'done') {
-    const gather = twiml.gather({
-      input: 'speech',
-      action: '/api/voice/speech',
-      method: 'POST',
-      speechTimeout: 'auto',
-    });
-    gather.say('I am listening...');
-  }
+  // Keep listening for next message
+  const gather = twiml.gather({
+    input: 'speech',
+    action: '/api/voice/speech',
+    method: 'POST',
+    speechTimeout: 'auto',
+  });
 
   res.type('text/xml').send(twiml.toString());
 };

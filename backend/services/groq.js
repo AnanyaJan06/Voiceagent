@@ -15,7 +15,7 @@ export async function askLlama(conversation) {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: "llama3-8b-8192",
+        model: "llama-3.1-8b-instant",  // ← NEW MODEL (fast & free)
         messages: [
           {
             role: "system",
@@ -31,7 +31,6 @@ Keep replies short, natural, and professional.`
       })
     });
 
-    // Check if response is OK
     if (!response.ok) {
       const errorText = await response.text();
       console.error("Groq HTTP error:", response.status, errorText);
@@ -39,8 +38,6 @@ Keep replies short, natural, and professional.`
     }
 
     const data = await response.json();
-
-    // SAFELY extract response — this fixes the "reading '0'" crash
     const reply = data?.choices?.[0]?.message?.content?.trim();
 
     if (!reply) {

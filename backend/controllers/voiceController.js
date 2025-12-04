@@ -4,12 +4,12 @@ const { VoiceResponse } = twilio.twiml;
 
 import { getSession, updateSession } from '../utils/state.js';
 import { synthesizeText } from '../services/tts.js';
-import { askLlama } from '../services/groq.js';  // <-- AI BRAIN
+import { askLlama } from '../services/groq.js';  // AI BRAIN (fixed version)
 
 export const handleIncomingCall = async (req, res) => {
   const callSid = req.body.CallSid;
 
-  // Initialize session with empty conversation history
+  // Initialize session
   updateSession(callSid, { history: [] });
 
   const twiml = new VoiceResponse();
@@ -27,7 +27,6 @@ export const handleIncomingCall = async (req, res) => {
     'Hello! Welcome to Firstused Autoparts. How can I help you today?'
   );
 
-  // Fallback if no speech detected
   twiml.say('I didn\'t hear anything. Goodbye.');
   twiml.hangup();
 
@@ -43,26 +42,18 @@ export const handleSpeech = async (req, res) => {
   const session = getSession(callSid);
   const history = session.history || [];
 
-  // Add user message to history
+  // Add customer message
   history.push({ role: "user", content: userSpeech });
 
-  // Build prompt with full conversation
-  const conversationSoFar = history
-    .map(msg => `${msg.role === "user" ? "Customer" : "Assistant"}: ${msg.content}`)
-    .join('\n');
+  // Build clean conversation text
+  const conversationText = history
+    .map(msg => (msg.role === "user" ? "Customer" : "Assistant") + ": " + msg.content)
+    .join("\n");
 
-  // ASK LLAMA 3 (THE AI BRAIN)
-  const aiResponse = await askLlama(`
-You are a friendly and professional auto parts salesperson at Firstused Autoparts.
-Speak naturally, be helpful, and keep responses short (1-2 sentences max).
-Only ask one question at a time.
+  // ASK THE AI BRAIN (with strong system rules)
+  const aiResponse = await askLlama(conversationText);
 
-Conversation so far:
-${conversationSoFar}
-
-Reply to the customer:`);
-
-  // Save AI response
+  // Save AI reply
   history.push({ role: "assistant", content: aiResponse });
   updateSession(callSid, { history });
 
@@ -70,17 +61,17 @@ Reply to the customer:`);
 
   const twiml = new VoiceResponse();
 
-  // Use Piper TTS (your beautiful voice)
+  // Try to use your Piper TTS
   const audioBuffer = await synthesizeText(aiResponse);
   if (audioBuffer) {
     const base64Audio = audioBuffer.toString('base64');
     twiml.play(`data:audio/wav;base64,${base64Audio}`);
   } else {
-    // Fallback to Twilio voice if TTS fails
+    // Fallback to Twilio Polly (sounds great too)
     twiml.say({ voice: 'Polly.Joanna', language: 'en-US' }, aiResponse);
   }
 
-  // Keep listening for next message
+  // Keep listening
   const gather = twiml.gather({
     input: 'speech',
     action: '/api/voice/speech',

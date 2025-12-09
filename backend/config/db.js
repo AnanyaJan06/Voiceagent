@@ -6,9 +6,9 @@ const connectDB = async () => {
 
   try {
     await mongoose.connect(process.env.MONGODB_URI, {
-      dbName: 'voiceagent'
+      dbName: 'test'  // ← YOUR REAL DATABASE
     });
-    console.log('MongoDB Connected');
+    console.log('MongoDB Connected → test.leads collection');
   } catch (error) {
     console.error('MongoDB connection error:', error);
   }

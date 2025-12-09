@@ -2,14 +2,14 @@
 import twilio from "twilio";
 const { VoiceResponse } = twilio.twiml;
 
+import Lead from '../models/Lead.js';
 import { getSession, updateSession } from '../utils/state.js';
 import { synthesizeText } from '../services/tts.js';
-import { askLlama } from '../services/groq.js';  // ← AI BRAIN
-import Reservation from '../models/Reservation.js';  // ← Saves to your crm DB
+import { askLlama } from '../services/groq.js';
 
 export const handleIncomingCall = async (req, res) => {
   const callSid = req.body.CallSid;
-  updateSession(callSid, { history: [] });
+  updateSession(callSid, { history: [], leadSaved: false });
 
   const twiml = new VoiceResponse();
   const gather = twiml.gather({
@@ -34,22 +34,19 @@ export const handleSpeech = async (req, res) => {
   const history = session.history || [];
   history.push({ role: "user", content: userSpeech });
 
-  // Build conversation for AI
-  const conversation = history
-    .map(m => `${m.role === "user" ? "Customer" : "Assistant"}: ${m.content}`)
-    .join('\n');
+  const conversation = history.map(m => `${m.role === "user" ? "Customer" : "Assistant"}: ${m.content}`).join("\n");
 
-  // ASK THE AI BRAIN (Groq + Llama 3)
+  // AI BRAIN — smart replies
   const aiResponse = await askLlama(conversation);
 
-  console.log('AI replied:', aiResponse);  // ← THIS LOG WILL APPEAR AGAIN
+  console.log('AI replied:', aiResponse);
 
   history.push({ role: "assistant", content: aiResponse });
   updateSession(callSid, { history });
 
   const twiml = new VoiceResponse();
 
-  // Use Piper TTS (beautiful voice)
+  // Use Piper TTS
   const audioBuffer = await synthesizeText(aiResponse);
   if (audioBuffer) {
     const base64Audio = audioBuffer.toString('base64');
@@ -58,30 +55,38 @@ export const handleSpeech = async (req, res) => {
     twiml.say({ voice: 'Polly.Joanna' }, aiResponse);
   }
 
-  // If customer gave address → save to your real crm database
-  if (userSpeech.toLowerCase().includes('my address') || 
-      userSpeech.match(/\d{6}/) ||  // detects pincode
-      session.waitingForAddress) {
+  // SAVE TO YOUR REAL test.leads collection when customer gives address
+  if (!session.leadSaved && (userSpeech.toLowerCase().includes('my address') || userSpeech.match(/\d{6}/))) {
     try {
-      await Reservation.create({
-        callSid,
-        customerPhone,
-        partRequested: session.lastPart || "unknown",
-        shippingAddress: userSpeech,
-        status: 'reserved'
+      await Lead.create({
+        clientName: "Voice Lead - " + new Date().toLocaleDateString(),
+        phoneNumber: customerPhone,
+        email: "voicelead@firstused.com",
+        zip: userSpeech.match(/\d{6}/)?.[0] || "000000",
+        partRequested: session.partRequested || "Unknown part",
+        make: "Unknown",
+        model: "Unknown",
+        year: "Unknown",
+        status: "Quoted",
+        notes: [{
+          text: `AI Voice Agent Lead. Customer said: "${userSpeech}"`,
+          addedBy: "AI Assistant",
+          createdAt: new Date()
+        }],
+        createdBy: false
       });
-      console.log("REAL ORDER SAVED in crm.reservations!");
+      console.log("NEW LEAD SAVED TO test.leads collection!");
+      updateSession(callSid, { leadSaved: true });
     } catch (err) {
-      console.error("DB Error:", err);
+      console.error("Failed to save lead:", err);
     }
   }
 
-  // Keep listening
   const gather = twiml.gather({
     input: 'speech',
     action: '/api/voice/speech',
     method: 'POST',
-    speechTimeout: 'auto',
+    speechTimeout: 'auto'
   });
 
   res.type('text/xml').send(twiml.toString());

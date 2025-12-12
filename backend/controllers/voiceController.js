@@ -4,7 +4,7 @@ const { VoiceResponse } = twilio.twiml;
 
 import Lead from '../models/Lead.js';
 import { getSession, updateSession } from '../utils/state.js';
-import { synthesizeText } from '../services/services/tts.js';
+import { synthesizeText } from '../services/tts.js';
 import { askLlama } from '../services/groq.js';
 
 export const handleIncomingCall = async (req, res) => {

@@ -5,10 +5,7 @@ const { VoiceResponse } = twilio.twiml;
 import Lead from '../models/Lead.js';
 import { getSession, updateSession } from '../utils/state.js';
 import { synthesizeText } from '../services/tts.js';
-import { askLlama } from '../services/groq.js';  // ← AI BRAIN IS BACK!
-
-const PRICE_REPLY = "Our pricing depends on the exact specifications and available options available. To give you the best and correct price, our representative will contact you shortly.";
-const WARRANTY_REPLY = "We usually offer 3 to 12 months warranty depending on the part condition. Our representative will provide you with the accurate warranty details.";
+import { askLlama } from '../services/groq.js';  // ← NOW FULLY USED!
 
 const QUESTIONS = [
   "May I have your full name please?",
@@ -21,6 +18,9 @@ const QUESTIONS = [
   "What year is your vehicle?",
   "Finally, what is the trim or variant?"
 ];
+
+const PRICE_REPLY = "Our pricing depends on the exact specifications and available options. To give you the correct and best price, our representative will contact you shortly.";
+const WARRANTY_REPLY = "We usually offer 3 to 12 months warranty, depending on the part condition. Our representative will give you the accurate warranty details for you.";
 
 export const handleIncomingCall = async (req, res) => {
   const callSid = req.body.CallSid;
@@ -58,32 +58,41 @@ export const handleSpeech = async (req, res) => {
   const data = session.data || {};
   const history = session.history || [];
 
-  // Add to history for context
   history.push({ role: "user", content: userSpeech });
 
   let response = "";
-
   const lower = userSpeech.toLowerCase();
 
-  // BLOCK price/warranty questions — ALWAYS use your exact reply
-  if (lower.includes('price') || lower.includes('cost') || lower.includes('how much') || lower.includes('rate')) {
+  // BLOCK price/warranty
+  if (lower.includes('price') || lower.includes('cost') || lower.includes('how much')) {
     response = PRICE_REPLY;
   } else if (lower.includes('warranty') || lower.includes('guarantee')) {
     response = WARRANTY_REPLY;
   }
-  // First message — customer says what they want
+  // First message
   else if (step === 0) {
     data.partRequested = userSpeech;
     response = "Thank you! Our representative will contact you soon with pricing and availability. To proceed, may I have your full name please?";
     step = 1;
   }
-  // Normal 9-question flow
+  // Use AI to extract clean data from messy speech
   else if (step >= 1 && step < QUESTIONS.length) {
-    const fields = ['clientName', 'phoneNumber', 'email', 'zip', 'partRequested', 'make', 'model', 'year', 'trim'];
-    data[fields[step - 1]] = userSpeech.trim();
+    const fieldNames = ['clientName', 'phoneNumber', 'email', 'zip', 'partRequested', 'make', 'model', 'year', 'trim'];
+    const currentField = fieldNames[step - 1];
+
+    // LET LLAMA EXTRACT CLEAN VALUE
+    const cleanValue = await askLlama(`
+Extract ONLY the ${currentField} from this sentence. Remove phrases like "my name is", "it's a", "the year is", etc.
+Return ONLY the clean value, nothing else.
+
+Customer said: "${userSpeech}"
+Field: ${currentField}
+Answer:`);
+
+    data[currentField] = cleanValue.trim() || userSpeech.trim();
 
     if (step === QUESTIONS.length - 1) {
-      // ALL DONE — SAVE TO YOUR REAL test.leads
+      // ALL DONE — SAVE CLEAN DATA TO DB
       try {
         await Lead.create({
           clientName: data.clientName || "Voice Customer",
@@ -97,13 +106,13 @@ export const handleSpeech = async (req, res) => {
           trim: data.trim || "Not specified",
           status: "Quoted",
           notes: [{
-            text: `AI Voice Lead - Part: ${data.partRequested}, Vehicle: ${data.make} ${data.model} ${data.year}`,
+            text: `AI Voice Lead - Raw: "${userSpeech}", Cleaned: ${JSON.stringify(data)}`,
             addedBy: "AI Voice Agent"
           }],
           createdBy: false
         });
-        console.log("NEW LEAD SAVED → test.leads");
-        response = "Thank you so much! All your details have been recorded. Our representative will call you back shortly with exact pricing and warranty. Have a wonderful day!";
+        console.log("SMART LEAD SAVED → test.leads");
+        response = "Thank you so much! All your details have been recorded perfectly. Our representative will call you back shortly with exact pricing and warranty. Have a wonderful day!";
       } catch (err) {
         console.error("Save failed:", err);
         response = "Thank you! We have your request and will call you back soon.";
@@ -114,12 +123,10 @@ export const handleSpeech = async (req, res) => {
     }
   }
 
-  // Save AI response to history
   history.push({ role: "assistant", content: response });
   updateSession(callSid, { step, data, history });
 
   const twiml = new VoiceResponse();
-
   const audio = await synthesizeText(response);
   if (audio) {
     twiml.play(`data:audio/wav;base64,${audio.toString('base64')}`);

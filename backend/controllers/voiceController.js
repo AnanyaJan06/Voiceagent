@@ -5,7 +5,7 @@ const { VoiceResponse } = twilio.twiml;
 import Lead from '../models/Lead.js';
 import { getSession, updateSession } from '../utils/state.js';
 import { synthesizeText } from '../services/tts.js';
-import { askLlama } from '../services/groq.js';  // AI BRAIN
+import { askLlama } from '../services/groq.js';
 
 const QUESTIONS = [
   "May I have your full name please?",
@@ -41,9 +41,7 @@ export const handleIncomingCall = async (req, res) => {
     speechTimeout: 'auto',
   });
 
-  gather.say({ voice: 'Polly.Joanna' },
-    "Hello! Welcome to Firstused Autoparts. How may I assist you today?"
-  );
+  gather.say('Hello! Welcome to Firstused Autoparts. How may I assist you today?');
 
   res.type('text/xml').send(twiml.toString());
 };
@@ -60,85 +58,93 @@ export const handleSpeech = async (req, res) => {
   const data = session.data || {};
 
   let response = "";
+  let isInterruption = false;
 
   const lower = userSpeech.toLowerCase();
 
-  // BLOCK PRICE & WARRANTY (your exact replies)
+  // PRICE / WARRANTY — ALWAYS ANSWER (interruption)
   if (lower.includes('price') || lower.includes('cost') || lower.includes('how much')) {
     response = PRICE_REPLY;
+    isInterruption = true;
   } else if (lower.includes('warranty') || lower.includes('guarantee')) {
     response = WARRANTY_REPLY;
+    isInterruption = true;
   }
-  // FIRST MESSAGE — customer says what part they want
-  else if (step === 0) {
-    data.partRequested = userSpeech;
-    response = "Thank you! Our representative will contact you soon with pricing and availability. To proceed, could you please tell me your 10-digit mobile number?";
-    step = 1;
-  }
-  // PHONE NUMBER CAPTURE + CONFIRMATION (100% AI-POWERED)
-  else if (step === 1 && !session.confirmedPhone) {
-    const extracted = await askLlama(`Extract only the 10-digit mobile number from this English speech. Return only digits, nothing else.\nCustomer said: "${userSpeech}"`);
-    const cleanPhone = extracted.replace(/\D/g, '').slice(-10);
 
-    if (cleanPhone.length === 10) {
-      session.tempPhone = cleanPhone;
-      response = `I have your number as ${cleanPhone.slice(0,5)} ${cleanPhone.slice(5)}. Is this correct? Please say yes or no.`;
-      step = 1.5;
-    } else {
-      response = "Sorry, I didn't catch your number clearly. Could you please repeat your 10-digit mobile number?";
-    }
-  }
-  else if (step === 1.5) {
-    const decision = await askLlama(`Customer was asked: "Is this correct? Please say yes or no."\nCustomer replied: "${userSpeech}"\nAnswer only "YES" or "NO" in uppercase.`);
-    
-    if (decision.trim() === "YES") {
-      data.phoneNumber = session.tempPhone;
-      session.confirmedPhone = true;
-      response = QUESTIONS[0]; // Ask name
-      step = 2;
-    } else {
-      response = "No problem! Please say your 10-digit mobile number again clearly.";
+  // PHONE NUMBER FLOW
+  if (!session.confirmedPhone) {
+    if (step === 0) {
+      data.partRequested = userSpeech;
+      response = "Thank you! Our representative will contact you soon. To proceed, could you please tell me your 10-digit mobile number?";
       step = 1;
+    } else if (step === 1) {
+      const extracted = await askLlama(`Extract only the 10-digit mobile number. Return digits only.\nCustomer said: "${userSpeech}"`);
+      const cleanPhone = extracted.replace(/\D/g, '').slice(-10);
+
+      if (cleanPhone.length === 10) {
+        session.tempPhone = cleanPhone;
+        response = `I have your number as ${cleanPhone.slice(0,5)} ${cleanPhone.slice(5)}. Is this correct?`;
+        step = 1.5;
+      } else {
+        response = "Sorry, I didn't catch that. Please repeat your 10-digit mobile number.";
+      }
+      isInterruption = true;
+    } else if (step === 1.5) {
+      const decision = await askLlama(`Customer replied: "${userSpeech}"\nIs this a confirmation (yes) or rejection (no)? Answer only "YES" or "NO".`);
+
+      if (decision.trim() === "YES") {
+        data.phoneNumber = session.tempPhone;
+        session.confirmedPhone = true;
+        response = QUESTIONS[0]; // Start normal questions
+        step = 2;
+      } else {
+        response = "No problem! Please say your 10-digit mobile number again.";
+        step = 1;
+      }
+      isInterruption = true;
     }
   }
-  // NORMAL 9-QUESTION FLOW
-  else if (session.confirmedPhone && step >= 2 && step < 2 + QUESTIONS.length) {
-    const fieldIndex = step - 2;
-    const fields = ['clientName', 'email', 'zip', 'partRequested', 'make', 'model', 'year', 'trim'];
-    
-    // Let AI clean the answer
-    const cleanValue = await askLlama(`Extract only the ${fields[fieldIndex]} from this sentence. Remove words like "my", "it's", "the", etc.\nCustomer said: "${userSpeech}"\nReturn only the clean value.`);
-    data[fields[fieldIndex]] = cleanValue.trim() || userSpeech.trim();
 
-    if (fieldIndex === QUESTIONS.length - 1) {
-      // ALL DONE — SAVE TO YOUR REAL test.leads
-      try {
-        await Lead.create({
-          clientName: data.clientName || "Voice Customer",
-          phoneNumber: data.phoneNumber,
-          email: data.email || "noemail@voicelead.com",
-          zip: data.zip || "000000",
-          partRequested: data.partRequested || session.partRequested,
-          make: data.make || "Unknown",
-          model: data.model || "Unknown",
-          year: data.year || "Unknown",
-          trim: data.trim || "Not specified",
-          status: "Quoted",
-          notes: [{
-            text: `AI Voice Lead - Part: ${data.partRequested}, Phone confirmed: ${data.phoneNumber}`,
-            addedBy: "AI Voice Agent"
-          }],
-          createdBy: false
-        });
-        console.log("LEAD SAVED TO test.leads!");
-        response = "Thank you so much! All your details have been recorded. Our representative will call you back shortly with exact pricing and warranty. Have a wonderful day!";
-      } catch (err) {
-        console.error("Save failed:", err);
-        response = "Thank you! We have your request and will call you back soon.";
+  // NORMAL QUESTION FLOW — AFTER PHONE CONFIRMED
+  if (session.confirmedPhone && !isInterruption) {
+    if (step >= 2 && step < 2 + QUESTIONS.length) {
+      const fieldIndex = step - 2;
+      const fields = ['clientName', 'email', 'zip', 'partRequested', 'make', 'model', 'year', 'trim'];
+
+      // AI cleans the answer
+      const cleanValue = await askLlama(`Extract only the ${fields[fieldIndex]} from this sentence. Remove filler words.\nCustomer said: "${userSpeech}"\nReturn only the value.`);
+      data[fields[fieldIndex]] = cleanValue.trim() || userSpeech.trim();
+
+      if (fieldIndex === QUESTIONS.length - 1) {
+        // ALL DONE — SAVE TO DB
+        try {
+          await Lead.create({
+            clientName: data.clientName || "Voice Customer",
+            phoneNumber: data.phoneNumber,
+            email: data.email || "noemail@voicelead.com",
+            zip: data.zip || "000000",
+            partRequested: data.partRequested || "Not specified",
+            make: data.make || "Unknown",
+            model: data.model || "Unknown",
+            year: data.year || "Unknown",
+            trim: data.trim || "Not specified",
+            status: "Quoted",
+            notes: [{
+              text: `AI Voice Lead - Part: ${data.partRequested}, Phone: ${data.phoneNumber}`,
+              addedBy: "AI Voice Agent"
+            }],
+            createdBy: false
+          });
+          console.log("LEAD SAVED → test.leads");
+          response = "Thank you so much! All details recorded. Our representative will call you back shortly. Have a great day!";
+        } catch (err) {
+          console.error("Save failed:", err);
+          response = "Thank you! We have your request.";
+        }
+      } else {
+        response = QUESTIONS[fieldIndex + 1];
+        step++;
       }
-    } else {
-      response = QUESTIONS[fieldIndex + 1];
-      step++;
     }
   }
 

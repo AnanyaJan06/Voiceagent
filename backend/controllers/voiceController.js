@@ -5,7 +5,7 @@ const { VoiceResponse } = twilio.twiml;
 import Lead from '../models/Lead.js';
 import { getSession, updateSession } from '../utils/state.js';
 import { synthesizeText } from '../services/tts.js';
-import { askLlama } from '../services/groq.js';  // AI BRAIN
+import { askLlama } from '../services/groq.js';  // AI BRAIN USED FOR EVERYTHING
 
 const QUESTIONS = [
   "May I have your full name please?",
@@ -63,21 +63,37 @@ export const handleSpeech = async (req, res) => {
 
   const lower = userSpeech.toLowerCase();
 
-  // BLOCK PRICE & WARRANTY (your exact replies)
+  // BLOCK PRICE & WARRANTY
   if (lower.includes('price') || lower.includes('cost') || lower.includes('how much')) {
     response = PRICE_REPLY;
   } else if (lower.includes('warranty') || lower.includes('guarantee')) {
     response = WARRANTY_REPLY;
   }
-  // FIRST MESSAGE — customer says what part they want
+  // FIRST MESSAGE — part request
   else if (step === 0) {
     data.partRequested = userSpeech;
     response = "Thank you! Our representative will contact you soon with pricing and availability. To proceed, could you please tell me your 10-digit mobile number?";
     step = 1;
   }
-  // PHONE NUMBER CAPTURE + CONFIRMATION (100% AI-POWERED)
+  // PHONE NUMBER — SMART EXTRACTION (handles double/triple/oh)
   else if (step === 1 && !session.confirmedPhone) {
-    const extracted = await askLlama(`Extract only the 10-digit mobile number from this English speech. Return only digits, nothing else.\nCustomer said: "${userSpeech}"`);
+    const extracted = await askLlama(`You are an expert at extracting spoken mobile numbers.
+
+Common spoken forms:
+- "double" = two same digits (double seven = 77)
+- "triple" = three same digits (triple eight = 888)
+- "oh" or "zero" = 0
+
+Customer said: "${userSpeech}"
+
+Extract ONLY the 10-digit mobile number as digits.
+Return ONLY the 10 digits, nothing else.
+
+Examples:
+"double seven three six four eight six seven three six" → 7736486736
+"nine eight seven six five four three two one oh" → 9876543210
+"triple eight double four five five five five" → 8884455555`);
+
     const cleanPhone = extracted.replace(/\D/g, '').slice(-10);
 
     if (cleanPhone.length === 10) {
@@ -85,12 +101,13 @@ export const handleSpeech = async (req, res) => {
       response = `I have your number as ${cleanPhone.slice(0,5)} ${cleanPhone.slice(5)}. Is this correct? Please say yes or no.`;
       step = 1.5;
     } else {
-      response = "Sorry, I didn't catch your number clearly. Could you please repeat your 10-digit mobile number?";
+      response = "Sorry, I didn't catch your number clearly. Could you please repeat your 10-digit mobile number slowly?";
     }
   }
+  // PHONE CONFIRMATION — AI-POWERED
   else if (step === 1.5) {
     const decision = await askLlama(`Customer was asked: "Is this correct? Please say yes or no."\nCustomer replied: "${userSpeech}"\nAnswer only "YES" or "NO" in uppercase.`);
-    
+
     if (decision.trim() === "YES") {
       data.phoneNumber = session.tempPhone;
       session.confirmedPhone = true;
@@ -101,13 +118,12 @@ export const handleSpeech = async (req, res) => {
       step = 1;
     }
   }
-  // NORMAL 9-QUESTION FLOW
+  // NORMAL QUESTIONS — AI cleans answers
   else if (session.confirmedPhone && step >= 2 && step < 2 + QUESTIONS.length) {
     const fieldIndex = step - 2;
     const fields = ['clientName', 'email', 'zip', 'partRequested', 'make', 'model', 'year', 'trim'];
-    
-    // Let AI clean the answer
-    const cleanValue = await askLlama(`Extract only the ${fields[fieldIndex]} from this sentence. Remove words like "my", "it's", "the", etc.\nCustomer said: "${userSpeech}"\nReturn only the clean value.`);
+
+    const cleanValue = await askLlama(`Extract only the ${fields[fieldIndex]} from this sentence. Remove filler words like "my", "it's", "the", etc.\nCustomer said: "${userSpeech}"\nReturn only the clean value.`);
     data[fields[fieldIndex]] = cleanValue.trim() || userSpeech.trim();
 
     if (fieldIndex === QUESTIONS.length - 1) {
@@ -118,14 +134,14 @@ export const handleSpeech = async (req, res) => {
           phoneNumber: data.phoneNumber,
           email: data.email || "noemail@voicelead.com",
           zip: data.zip || "000000",
-          partRequested: data.partRequested || session.partRequested,
+          partRequested: data.partRequested || "Not specified",
           make: data.make || "Unknown",
           model: data.model || "Unknown",
           year: data.year || "Unknown",
           trim: data.trim || "Not specified",
           status: "Quoted",
           notes: [{
-            text: `AI Voice Lead - Part: ${data.partRequested}, Phone confirmed: ${data.phoneNumber}`,
+            text: `AI Voice Lead - Part: ${data.partRequested}, Phone: ${data.phoneNumber}`,
             addedBy: "AI Voice Agent"
           }],
           createdBy: false

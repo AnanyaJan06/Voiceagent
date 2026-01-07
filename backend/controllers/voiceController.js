@@ -26,7 +26,7 @@ export const handleIncomingCall = async (req, res) => {
     tempPhone: null,
     step: 0,
     data: {},
-    conversation: []  // To save full conversation
+    conversation: []
   });
 
   const twiml = new VoiceResponse();
@@ -68,40 +68,27 @@ export const handleSpeech = async (req, res) => {
   } else if (lower.includes('warranty') || lower.includes('guarantee')) {
     response = WARRANTY_REPLY;
   }
-  // FIRST MESSAGE — part request
+  // FIRST MESSAGE — extract only the part cleanly
   else if (step === 0) {
-    data.partRequested = userSpeech;
-
-    // Try to extract make, model, year
-    const extracted = await askLlama(`Extract make, model, year from this sentence. If not present, return "none".
+    const partExtracted = await askLlama(`Extract ONLY the auto part name from this sentence. Remove greetings, filler words, and extra text.
+Return only the part name (e.g. "brake pads", "battery").
 
 Customer said: "${userSpeech}"
 
-Return as JSON: {"make": "...", "model": "...", "year": "..."}`);
+Answer:`);
 
-    let vehicle = "";
-    try {
-      const parsed = JSON.parse(extracted);
-      if (parsed.make && parsed.model && parsed.year && parsed.make !== "none") {
-        vehicle = ` for ${parsed.year} ${parsed.make} ${parsed.model}`;
-        data.vehicleDetails = `${parsed.year} ${parsed.make} ${parsed.model}`;
-      }
-    } catch (e) {
-      // ignore
-    }
+    const cleanPart = partExtracted.trim() || "the part";
 
-    if (vehicle) {
-      response = `Got it — ${data.partRequested}${vehicle}. Our representative will contact you soon with pricing and availability. To proceed, may I have your full name please?`;
-      step = 1;
-    } else {
-      response = "Got it — you need " + data.partRequested + ". Could you please tell me the make, model, and year of your vehicle?";
-      step = 0.5; // special step for vehicle
-    }
+    data.partRequested = cleanPart;
+
+    response = `Got it — ${cleanPart}. Could you please tell me the make, model, and year of your vehicle?`;
+    step = 0.5;
   }
-  // VEHICLE DETAILS (if not given in first message)
+  // VEHICLE DETAILS
   else if (step === 0.5) {
-    data.vehicleDetails = userSpeech;
-    response = "Thank you! Our representative will contact you soon with pricing and availability. To proceed, may I have your full name please?";
+    data.vehicleDetails = userSpeech.trim();
+
+    response = "Thank you! Our representative will contact you soon with pricing and availability. To proceed, could you please tell me your 10-digit mobile number?";
     step = 1;
   }
   // PHONE NUMBER
@@ -114,7 +101,7 @@ Return as JSON: {"make": "...", "model": "...", "year": "..."}`);
       response = `I have your number as ${cleanPhone.slice(0,5)} ${cleanPhone.slice(5)}. Is this correct? Please say yes or no.`;
       step = 1.5;
     } else {
-      response = "Sorry, I didn't catch your number clearly. Could you please repeat your 10-digit mobile number?";
+      response = "Sorry, I didn't catch your number clearly. Could you please repeat your 10-digit mobile number slowly?";
     }
   }
   else if (step === 1.5) {
@@ -130,7 +117,7 @@ Return as JSON: {"make": "...", "model": "...", "year": "..."}`);
       step = 1;
     }
   }
-  // ONLY 3 QUESTIONS: Name → Email → Zip
+  // NAME → EMAIL → ZIP
   else if (session.confirmedPhone && step >= 2 && step < 2 + QUESTIONS.length) {
     const fieldIndex = step - 2;
     const fields = ['clientName', 'email', 'zip'];
@@ -139,7 +126,7 @@ Return as JSON: {"make": "...", "model": "...", "year": "..."}`);
     data[fields[fieldIndex]] = cleanValue.trim() || userSpeech.trim();
 
     if (fieldIndex === QUESTIONS.length - 1) {
-      // ALL DONE — SAVE TO test.leads with full conversation in notes
+      // ALL DONE — SAVE TO test.leads
       const fullConversation = conversation.map(c => `${c.role}: ${c.content}`).join('\n');
 
       try {
@@ -152,7 +139,7 @@ Return as JSON: {"make": "...", "model": "...", "year": "..."}`);
           make: "Not collected",
           model: "Not collected",
           year: "Not collected",
-          trim: "Not specified",
+          trim: "Not collected",
           status: "Quoted",
           notes: [{
             text: `AI Voice Lead - Full conversation:\n${fullConversation}\nVehicle details: ${data.vehicleDetails || 'Not provided'}`,
@@ -160,7 +147,7 @@ Return as JSON: {"make": "...", "model": "...", "year": "..."}`);
           }],
           createdBy: false
         });
-        console.log("LEAD SAVED TO test.leads with full conversation!");
+        console.log("LEAD SAVED TO test.leads!");
         response = "Thank you so much! All your details have been recorded. Our representative will call you back shortly with exact pricing and warranty. Have a wonderful day!";
       } catch (err) {
         console.error("Save failed:", err);

@@ -5,13 +5,12 @@ const { VoiceResponse } = twilio.twiml;
 import Lead from '../models/Lead.js';
 import { getSession, updateSession } from '../utils/state.js';
 import { synthesizeText } from '../services/tts.js';
-import { askLlama } from '../services/groq.js';  // For phone extraction & confirmation
+import { askLlama } from '../services/groq.js';
 
 const QUESTIONS = [
   "May I have your full name please?",
   "Thank you! What is your email address?",
-  "Great! What is your zip or pin code?",
-  "Perfect. What part are you looking for?"
+  "Great! What is your zip or pin code?"
 ];
 
 const PRICE_REPLY = "Our pricing depends on the exact specifications and available options. To give you the correct and best price, our representative will contact you shortly.";
@@ -57,39 +56,57 @@ export const handleSpeech = async (req, res) => {
   const data = session.data || {};
   const conversation = session.conversation || [];
 
-  // Save every customer message to conversation
   conversation.push({ role: "customer", content: userSpeech });
 
   let response = "";
 
   const lower = userSpeech.toLowerCase();
 
-  // PRICE & WARRANTY — always reply
+  // PRICE & WARRANTY
   if (lower.includes('price') || lower.includes('cost') || lower.includes('how much')) {
     response = PRICE_REPLY;
   } else if (lower.includes('warranty') || lower.includes('guarantee')) {
     response = WARRANTY_REPLY;
   }
-  // FIRST MESSAGE — customer says what they want
+  // FIRST MESSAGE — part request
   else if (step === 0) {
-    data.partRequested = userSpeech;  // Save raw speech
-    response = "Thank you! Our representative will contact you soon with pricing and availability. To proceed, could you please tell me your 10-digit mobile number?";
-    step = 1;
-  }
-  // PHONE NUMBER — smart extraction
-  else if (step === 1 && !session.confirmedPhone) {
-    const extracted = await askLlama(`You are an expert at extracting spoken mobile numbers.
+    data.partRequested = userSpeech;
 
-Common spoken forms:
-- "double" = two same digits (double seven = 77)
-- "triple" = three same digits (triple eight = 888)
-- "oh" or "zero" = 0
+    // Try to extract make, model, year
+    const extracted = await askLlama(`Extract make, model, year from this sentence. If not present, return "none".
 
 Customer said: "${userSpeech}"
 
-Extract ONLY the 10-digit mobile number as digits.
-Return ONLY the 10 digits, nothing else.`);
+Return as JSON: {"make": "...", "model": "...", "year": "..."}`);
 
+    let vehicle = "";
+    try {
+      const parsed = JSON.parse(extracted);
+      if (parsed.make && parsed.model && parsed.year && parsed.make !== "none") {
+        vehicle = ` for ${parsed.year} ${parsed.make} ${parsed.model}`;
+        data.vehicleDetails = `${parsed.year} ${parsed.make} ${parsed.model}`;
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    if (vehicle) {
+      response = `Got it — ${data.partRequested}${vehicle}. Our representative will contact you soon with pricing and availability. To proceed, may I have your full name please?`;
+      step = 1;
+    } else {
+      response = "Got it — you need " + data.partRequested + ". Could you please tell me the make, model, and year of your vehicle?";
+      step = 0.5; // special step for vehicle
+    }
+  }
+  // VEHICLE DETAILS (if not given in first message)
+  else if (step === 0.5) {
+    data.vehicleDetails = userSpeech;
+    response = "Thank you! Our representative will contact you soon with pricing and availability. To proceed, may I have your full name please?";
+    step = 1;
+  }
+  // PHONE NUMBER
+  else if (step === 1 && !session.confirmedPhone) {
+    const extracted = await askLlama(`Extract only the 10-digit mobile number from this English speech. Return only digits, nothing else.\nCustomer said: "${userSpeech}"`);
     const cleanPhone = extracted.replace(/\D/g, '').slice(-10);
 
     if (cleanPhone.length === 10) {
@@ -97,10 +114,9 @@ Return ONLY the 10 digits, nothing else.`);
       response = `I have your number as ${cleanPhone.slice(0,5)} ${cleanPhone.slice(5)}. Is this correct? Please say yes or no.`;
       step = 1.5;
     } else {
-      response = "Sorry, I didn't catch your number clearly. Could you please repeat your 10-digit mobile number slowly?";
+      response = "Sorry, I didn't catch your number clearly. Could you please repeat your 10-digit mobile number?";
     }
   }
-  // PHONE CONFIRMATION
   else if (step === 1.5) {
     const decision = await askLlama(`Customer was asked: "Is this correct? Please say yes or no."\nCustomer replied: "${userSpeech}"\nAnswer only "YES" or "NO" in uppercase.`);
 
@@ -114,20 +130,19 @@ Return ONLY the 10 digits, nothing else.`);
       step = 1;
     }
   }
-  // ONLY 4 QUESTIONS: Name → Email → Zip → Part
+  // ONLY 3 QUESTIONS: Name → Email → Zip
   else if (session.confirmedPhone && step >= 2 && step < 2 + QUESTIONS.length) {
     const fieldIndex = step - 2;
-    const fields = ['clientName', 'email', 'zip', 'partRequested'];
+    const fields = ['clientName', 'email', 'zip'];
 
-    // Clean the answer
     const cleanValue = await askLlama(`Extract only the ${fields[fieldIndex]} from this sentence. Remove filler words.\nCustomer said: "${userSpeech}"\nReturn only the clean value.`);
     data[fields[fieldIndex]] = cleanValue.trim() || userSpeech.trim();
 
     if (fieldIndex === QUESTIONS.length - 1) {
-      // ALL DONE — SAVE TO test.leads with full conversation
-      try {
-        const fullConversation = conversation.map(c => `${c.role}: ${c.content}`).join('\n');
+      // ALL DONE — SAVE TO test.leads with full conversation in notes
+      const fullConversation = conversation.map(c => `${c.role}: ${c.content}`).join('\n');
 
+      try {
         await Lead.create({
           clientName: data.clientName || "Voice Customer",
           phoneNumber: data.phoneNumber,
@@ -137,10 +152,10 @@ Return ONLY the 10 digits, nothing else.`);
           make: "Not collected",
           model: "Not collected",
           year: "Not collected",
-          trim: "Not collected",
+          trim: "Not specified",
           status: "Quoted",
           notes: [{
-            text: `AI Voice Lead - Full conversation:\n${fullConversation}`,
+            text: `AI Voice Lead - Full conversation:\n${fullConversation}\nVehicle details: ${data.vehicleDetails || 'Not provided'}`,
             addedBy: "AI Voice Agent"
           }],
           createdBy: false
@@ -157,7 +172,6 @@ Return ONLY the 10 digits, nothing else.`);
     }
   }
 
-  // Save AI response to conversation
   conversation.push({ role: "assistant", content: response });
   updateSession(callSid, { step, data, conversation });
 
